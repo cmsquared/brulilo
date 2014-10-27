@@ -15,7 +15,7 @@ class Reaction(object):
         the stochiometric coefficient, and the second element is the Isotope.
         """
         coefficients, isotopes = zip(*species)
-        self.isotopes = list[isotopes]
+        self.isotopes = list(isotopes)
         self.coeffs = coefficients
         self.func = react_func
 
@@ -25,13 +25,14 @@ class Reaction(object):
         defined by the total isotopes in a network.  We use this
         to determine how a particular reaction acts within a network.
         """
-        vec = np.zeros(len[network_isotopes], dtype='int')
+        vec = np.zeros(len(network_isotopes), dtype='int')
         indices = [i for i,isotope in enumerate(network_isotopes)
                    if isotope in self.isotopes]
         vec[indices] = 1
         for i, isotope in enumerate(self.isotopes):
-            i_net = network_isotopes.find(isotope)
-            if i_net < 0:
+            try:
+                i_net = network_isotopes.index(isotope)
+            except IndexError:
                 raise RuntimeError("%s not in network" % isotope)
             else:
                 vec[i_net] *= self.coeffs[i]

@@ -11,3 +11,9 @@ class Network(object):
 
         for rxn in self.reactions:
             rxn.update_rxn_vector(isotopes)
+
+    def plot(self, draw_rxns=False):
+        """
+        Draw a network diagram of the Isotopes and potentially the Reactions.
+        """
+        pass

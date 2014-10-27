@@ -37,3 +37,9 @@ class Reaction(object):
             else:
                 vec[i_net] *= self.coeffs[i]
         self.rxn_vector = vec[:]
+
+    def plot_on(self, fig):
+        """
+        Plop the reaction onto a figure.
+        """
+        pass

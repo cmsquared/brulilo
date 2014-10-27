@@ -1,6 +1,7 @@
 """
 An Isotope is a container holding a species mass, atomic number, etc.
 """
+import numpy as np
 
 # periodic table, somewhat broken up appropriately
 isotope_lut = ['H', 'He',
@@ -34,3 +35,23 @@ class Isotope(object):
         self.Z = number
         self.B = ebin
         self.symbol = isotope_lut[self.Z + 1]
+        self._plot_nz = np.array([self.A-self.Z, self.Z], dtype='int')
+
+    def plot_build_label(self):
+        """
+        Provide a nice LaTeX-formatted label.  Useful for plotting.
+        """
+        baseStr = r'$^{%d}\mathrm{%s}$'
+        return baseStr % (self.A, self.symbol)
+
+    def plot_place(self, fig):
+        """
+        Plop the label onto a figure.
+        """
+        pass
+
+    def plot_patch(self, fig):
+        """
+        Plop the box for this Isotope on a figure.
+        """
+        pass

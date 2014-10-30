@@ -31,3 +31,4 @@ rxns = [c12pg, n13beta, c13pg, n14pg, o15beta, n15pg,
         n15pa, o16pg, f17beta, o17pa]
 
 net = Network(isotopes, rxns)
+net.plot()

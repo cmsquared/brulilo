@@ -30,28 +30,48 @@ isotope_lut = ['H', 'He',
 
 
 class Isotope(object):
+    # some properties for plotting the isotope and it's box
+    _width = 0.9
+    _label_pad = 0.2
+    _box_size = _width - 2*_label_pad
+
     def __init__(self, mass, number, ebin):
         self.A = mass
         self.Z = number
         self.B = ebin
-        self.symbol = isotope_lut[self.Z + 1]
-        self._plot_nz = np.array([self.A-self.Z, self.Z], dtype='int')
+        self.symbol = isotope_lut[self.Z - 1]
+        self._plot_nz = np.array([self.A-self.Z,
+                                  self.Z], dtype='int')
 
-    def plot_build_label(self):
+    def _plot_build_label(self):
         """
         Provide a nice LaTeX-formatted label.  Useful for plotting.
         """
         baseStr = r'$^{%d}\mathrm{%s}$'
         return baseStr % (self.A, self.symbol)
 
-    def plot_place(self, fig):
+    def plot_label(self, fig):
         """
         Plop the label onto a figure.
         """
-        pass
+        fig.gca().text(self._plot_nz[0] + 0.5*self._width,
+                       self._plot_nz[1] + 0.5*self._width,
+                       self._plot_build_label(),
+                       color='black',
+                       # family='sans-serif',
+                       fontsize=14,
+                       ha='center', va='center',
+                       # make this one of the last things drawn
+                       zorder=100)
 
     def plot_patch(self, fig):
         """
         Plop the box for this Isotope on a figure.
         """
-        pass
+        from matplotlib.patches import FancyBboxPatch
+        fig.gca().add_patch(FancyBboxPatch(self._plot_nz + self._label_pad,
+                                           self._box_size, self._box_size,
+                                           ec='black', fc='none',
+                                           boxstyle=('round,pad=%s' %
+                                                     self._label_pad),
+                                           ls='solid'))

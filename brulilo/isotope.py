@@ -2,35 +2,9 @@
 An Isotope is a container holding a species mass, atomic number, etc.
 """
 import numpy as np
+from util.reaclib import get_Z_A, isotope_lut, Zdict
 
-# periodic table, somewhat broken up appropriately
-isotope_lut = ['H', 'He',
-               'Li', 'Be',
-               'B', 'C', 'N', 'O', 'F', 'Ne',
-               'Na', 'Mg',
-               'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
-               'K', 'Ca',
-               'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co',  # break
-               'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr',
-               'Rb', 'Sr',
-               'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh',  # break
-               'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
-               'Cs', 'Ba',
-               # Lanthanide Series
-               'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu',  # break
-               'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu',
-               'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt',  # break
-               'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn',
-               'Fr', 'Ra',
-               # Actinide Series
-               'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am',  # break
-               'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
-               'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds',  # break
-               'Rg', 'Cn', 'Uut', 'Fl', 'Uup', 'Lv', 'Uus', 'Uuo']
-# this is useful for going from a species name to a Z value
-Zdict = {}
-for i, species in enumerate(isotope_lut):
-    Zdict[species] = i+1
+isotope_registry = {}
 
 
 class Isotope(object):
@@ -39,13 +13,45 @@ class Isotope(object):
     _label_pad = 0.2
     _box_size = _width - 2*_label_pad
 
-    def __init__(self, name, mass, ebin):
-        self.A = mass
-        self.Z = Zdict[name.capitalize()]
+    def __new__(cls, name, mass=None, **kwargs):
+        if mass is None:
+            Z, A = get_Z_A(name)
+        else:
+            A = mass
+            Z = Zdict[name.capitalize()]
+        registered_name = "%s%d" % (isotope_lut[Z-1], A)
+        if registered_name in isotope_registry:
+            return isotope_registry[registered_name]
+        return super(Isotope, cls).__new__(cls, name, mass, **kwargs)
+
+    def __init__(self, name, mass=None, ebin=None):
+        """
+        You can specify the name of the isotope (e.g. "He") and the mass
+        (e.g. 4) separately, or as a single string (e.g. "He4").
+        """
+        if mass is None:
+            self.Z, self.A = get_Z_A(name)
+        else:
+            self.A = mass
+            self.Z = Zdict[name.capitalize()]
         self.B = ebin
-        self.symbol = isotope_lut[self.Z - 1]
+        # special neutron case
+        if self.Z == 0:
+            self.symbol = 'n'
+        else:
+            self.symbol = isotope_lut[self.Z - 1]
         self._plot_nz = np.array([self.A-self.Z,
                                   self.Z], dtype='int')
+
+        # probably a more meta way of doing this, but register this class
+        isotope_registry[str(self)] = self
+
+    def __hash__(self):
+        # just so we can make a set...
+        return isotope_registry.keys().index(str(self))
+
+    def __cmp__(self, other):
+        return cmp(hash(self), hash(other))
 
     def __str__(self):
         return "%s%d" % (self.symbol, self.A)

@@ -1,0 +1,13 @@
+He4(g,n)He3
+He4(g,p)t
+He4(g,d)d
+He4(n,d)t
+He4(a,n)Be7
+He4(nn,g)He6
+He4(na,g)Be9
+He4(aa,g)C12
+He4(pp,He3)He3
+He4(aa,n)C11
+He4(npa,He3)Li7
+He4(ppa,He3)Be7
+p(p,)d

@@ -17,7 +17,19 @@ class Reaction(object):
         coefficients, isotopes = zip(*species)
         self.isotopes = list(isotopes)
         self.coeffs = coefficients
-        self.func = react_func
+        self.rate = react_func
+
+    def __str__(self):
+        lhs = []
+        rhs = []
+        for coeff, isotope in zip(self.coeffs, self.isotopes):
+            if coeff < 0:
+                lhs.extend([str(isotope), ]*(-coeff))
+            else:
+                rhs.extend([str(isotope), ]*coeff)
+        lhs = ' + '.join(lhs)
+        rhs = ' + '.join(rhs)
+        return lhs + ' --> ' + rhs
 
     def update_rxn_vector(self, network_isotopes):
         """

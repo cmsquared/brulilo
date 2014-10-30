@@ -41,11 +41,14 @@ class Isotope(object):
 
     def __init__(self, name, mass, ebin):
         self.A = mass
-        self.Z = Zdict[name]
+        self.Z = Zdict[name.capitalize()]
         self.B = ebin
         self.symbol = isotope_lut[self.Z - 1]
         self._plot_nz = np.array([self.A-self.Z,
                                   self.Z], dtype='int')
+
+    def __str__(self):
+        return "%s%d" % (self.symbol, self.A)
 
     def _plot_build_label(self):
         """

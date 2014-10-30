@@ -1,6 +1,4 @@
-from brulilo import Network
-from brulilo import Reaction
-from brulilo import Isotope
+from brulilo import Network, Reaction, Isotope
 
 # CNO cycle
 prot = Isotope("H", mass=1, ebin=0.0)
@@ -33,7 +31,4 @@ rxns = [c12pg, n13beta, c13pg, n14pg, o15beta, n15pg,
 net = Network(isotopes, rxns)
 net.plot()
 
-for isotope in net.isotopes:
-    print isotope
-for rxn in net.reactions:
-    print rxn
+net.pprint()

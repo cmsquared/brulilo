@@ -7,4 +7,8 @@ setup(name='brulilo',
       author='Chris Malone',
       author_email='chris.m.malone@gmail.com',
       packages=['brulilo'],
+      install_requires=[
+          'numpy',
+          'matplotlib',
+      ],
       license='TBD')

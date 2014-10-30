@@ -2,6 +2,7 @@
 A Network contains a list of Isotopes, and a list of Reactions that
 link the isotopes together.
 """
+from reaction import ReacLibReaction
 
 
 class Network(object):
@@ -10,7 +11,27 @@ class Network(object):
         self.reactions = list(reactions)
 
         for rxn in self.reactions:
-            rxn.update_rxn_vector(isotopes)
+            rxn.update_rxn_vector(self.isotopes)
+
+    @classmethod
+    def from_rxn_file(cls, rxn_file):
+        reactions = []
+        with open(rxn_file, 'r') as f:
+            for rxn in f:
+                reactions.append(ReacLibReaction(rxn.strip()))
+        isotopes = []
+        for reaction in reactions:
+            isotopes.extend(reaction.isotopes)
+        isotopes = set(isotopes)
+        return cls(isotopes, reactions)
+
+    def pprint(self):
+        print 'Isotopes:'
+        for isotope in self.isotopes:
+            print isotope
+        print 'Reactions:'
+        for reaction in self.reactions:
+            print reaction
 
     def plot(self, draw_rxns=False):
         """

@@ -3,17 +3,17 @@ from brulilo import Reaction
 from brulilo import Isotope
 
 # CNO cycle
-prot = Isotope(mass=1, number=1, ebin=0.0)
-alfa = Isotope(mass=4, number=2, ebin=None)
-C12 = Isotope(mass=12, number=6, ebin=None)
-C13 = Isotope(mass=13, number=6, ebin=None)
-N13 = Isotope(mass=13, number=7, ebin=None)
-N14 = Isotope(mass=14, number=7, ebin=None)
-N15 = Isotope(mass=15, number=7, ebin=None)
-O15 = Isotope(mass=15, number=8, ebin=None)
-O16 = Isotope(mass=16, number=8, ebin=None)
-O17 = Isotope(mass=17, number=8, ebin=None)
-F17 = Isotope(mass=17, number=9, ebin=None)
+prot = Isotope("H", mass=1, ebin=0.0)
+alfa = Isotope("He", mass=4, ebin=None)
+C12 = Isotope("C", mass=12, ebin=None)
+C13 = Isotope("C", mass=13, ebin=None)
+N13 = Isotope("N", mass=13, ebin=None)
+N14 = Isotope("N", mass=14, ebin=None)
+N15 = Isotope("N", mass=15, ebin=None)
+O15 = Isotope("O", mass=15, ebin=None)
+O16 = Isotope("O", mass=16, ebin=None)
+O17 = Isotope("O", mass=17, ebin=None)
+F17 = Isotope("F", mass=17, ebin=None)
 isotopes = [prot, alfa, C12, C13, N13, N14, N15,
             O15, O16, O17, F17]
 

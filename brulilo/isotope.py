@@ -6,7 +6,7 @@ import numpy as np
 # periodic table, somewhat broken up appropriately
 isotope_lut = ['H', 'He',
                'Li', 'Be',
-               'B', 'C', 'O', 'F', 'Ne',
+               'B', 'C', 'N', 'O', 'F', 'Ne',
                'Na', 'Mg',
                'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
                'K', 'Ca',
@@ -27,6 +27,10 @@ isotope_lut = ['H', 'He',
                'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
                'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds',  # break
                'Rg', 'Cn', 'Uut', 'Fl', 'Uup', 'Lv', 'Uus', 'Uuo']
+# this is useful for going from a species name to a Z value
+Zdict = {}
+for i, species in enumerate(isotope_lut):
+    Zdict[species] = i+1
 
 
 class Isotope(object):
@@ -35,9 +39,9 @@ class Isotope(object):
     _label_pad = 0.2
     _box_size = _width - 2*_label_pad
 
-    def __init__(self, mass, number, ebin):
+    def __init__(self, name, mass, ebin):
         self.A = mass
-        self.Z = number
+        self.Z = Zdict[name]
         self.B = ebin
         self.symbol = isotope_lut[self.Z - 1]
         self._plot_nz = np.array([self.A-self.Z,

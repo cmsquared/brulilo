@@ -2,13 +2,28 @@
 A Network contains a list of Isotopes, and a list of Reactions that
 link the isotopes together.
 """
+import types
+import lxml.etree as etree
+import os.path
+
 from reaction import ReacLibReaction
+from isotope import Isotope
+from brulilo.util.reaclib import nuc_data_file, rxn_data_file, sanitize_species
+import brulilo
 
 
 class Network(object):
     def __init__(self, isotopes, reactions):
         self.isotopes = list(isotopes)
         self.reactions = list(reactions)
+        print 'in Network init', self.isotopes
+
+        # if the isotopes are just the string names, as is the case
+        # for from_rxn_file-generated networks, we need to do some
+        # updating
+        if isinstance(self.isotopes[0], types.StringTypes):
+            self._update_with_Isotopes()
+            self._build_rxn_rates()
 
         for rxn in self.reactions:
             rxn.update_rxn_vector(self.isotopes)
@@ -24,6 +39,37 @@ class Network(object):
             isotopes.extend(reaction.isotopes)
         isotopes = set(isotopes)
         return cls(isotopes, reactions)
+
+    def _update_with_Isotopes(self):
+        """
+        Turn the strings stored in self.isotopes into actual Isotope objects.
+        Furthermore, update each ReacLibReaction to using the Isotopes.
+        """
+        real_isotopes = []
+        for isotope in self.isotopes:
+            real_isotopes.append(Isotope(isotope))
+        # let's get each Isotope's mass_excess from the nuclear data file
+        # this takes a bit
+        fn = os.path.join(os.path.dirname(brulilo.__file__), nuc_data_file)
+        nuc_data_root = etree.parse(fn)
+        for isotope in real_isotopes:
+            isotope.update_mass_excess(nuc_data_root)
+        self.isotopes = real_isotopes
+
+        net_isotopes = {str(isotope): isotope for isotope in self.isotopes}
+        for reaction in self.reactions:
+            reaction.isotopes = [net_isotopes[sanitize_species(isotope)] for
+                                 isotope in reaction.isotopes]
+
+    def _build_rxn_rates(self):
+        """
+        Read the reaction fit parameters from the ReacLib database stored
+        in the XML file, rxn_data_file; may take a while
+        """
+        fn = os.path.join(os.path.dirname(brulilo.__file__), rxn_data_file)
+        rxn_data_root = etree.parse(fn)
+        for reaction in self.reactions:
+            reaction.build_rxn_rate(rxn_data_root)
 
     def pprint(self):
         print 'Isotopes:'

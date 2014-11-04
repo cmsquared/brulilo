@@ -1,17 +1,17 @@
 from brulilo import Network, Reaction, Isotope
 
 # CNO cycle
-prot = Isotope("H", mass=1, ebin=0.0)
-alfa = Isotope("He", mass=4, ebin=None)
-C12 = Isotope("C", mass=12, ebin=None)
-C13 = Isotope("C", mass=13, ebin=None)
-N13 = Isotope("N", mass=13, ebin=None)
-N14 = Isotope("N", mass=14, ebin=None)
-N15 = Isotope("N", mass=15, ebin=None)
-O15 = Isotope("O", mass=15, ebin=None)
-O16 = Isotope("O", mass=16, ebin=None)
-O17 = Isotope("O", mass=17, ebin=None)
-F17 = Isotope("F", mass=17, ebin=None)
+prot = Isotope("H", mass=1)
+alfa = Isotope("He", mass=4)
+C12 = Isotope("C", mass=12)
+C13 = Isotope("C", mass=13)
+N13 = Isotope("N", mass=13)
+N14 = Isotope("N", mass=14)
+N15 = Isotope("N", mass=15)
+O15 = Isotope("O", mass=15)
+O16 = Isotope("O", mass=16)
+O17 = Isotope("O", mass=17)
+F17 = Isotope("F", mass=17)
 isotopes = [prot, alfa, C12, C13, N13, N14, N15,
             O15, O16, O17, F17]
 

@@ -66,8 +66,9 @@ class Reaction(object):
 
 class ReacLibReaction(Reaction):
     """
-    For ReacLib[1] reaction rate objects. This stores, parses and searches for
-    rate information over HTTP from the ReacLib database.
+    For ReacLib[1] reaction rate objects.  These will be stored in an XML
+    file that we only want to parse once, so we pass just the name of the
+    isotope -- NOT the Isotope object -- to the baseclass.
 
     [1] https://groups.nscl.msu.edu/jina/reaclib/db/
     """
@@ -79,31 +80,15 @@ class ReacLibReaction(Reaction):
         # build target, reactants and products
         self._parse_rate_string()
 
-        # here we need to build the intervening Isotopes to pass to the base
-        # init method; we assume no Isotopes are catalysts
-        all_reactants = [Isotope(spec) for spec in self.reactants]
-        all_products = [Isotope(spec) for spec in self.products]
-        isotopes_cnt = collections.Counter(map(str,
-                                               all_reactants + all_products))
-        uniq_reactants = set(all_reactants)
-        uniq_products = set(all_products)
-        uniq_isotopes = uniq_reactants | uniq_products
-        print self.nucRxnString
-        print 'isotopes_cnt', isotopes_cnt
-        print 'uniq_isotopes', map(str, uniq_isotopes)
-        # isotopes = [Isotope(spec) for spec in uniq_isotopes]
-        # # assuming there aren't any catalytic species in the reaction
-        # reactants = [isotope for isotope in isotopes
-        #              if str(isotope) in self.reactants]
-        # products = [isotope for isotope in isotopes
-        #             if str(isotope) in self.products]
-        species = [(-1*isotopes_cnt[str(isotope)], isotope)
+        # separate into unique values
+        isotopes_cnt = collections.Counter(self.reactants + self.products)
+        uniq_reactants = set(self.reactants)
+        uniq_products = set(self.products)
+        species = [(-1*isotopes_cnt[isotope], isotope)
                    for isotope in uniq_reactants]
-        species += [(isotopes_cnt[str(isotope)], isotope)
+        species += [(isotopes_cnt[isotope], isotope)
                     for isotope in uniq_products]
-        print 'species'
-        for spec in species:
-            print spec[0], str(spec[1])
+
         super(ReacLibReaction, self).__init__(species)
 
     def _parse_rate_string(self):
@@ -115,10 +100,10 @@ class ReacLibReaction(Reaction):
         sanitize_species method from the util.reaclib module.
         """
         # tokenize the nucRateString and apply any sanitizations
-        target = self.nucRxnString.split('(')[0]
+        target = rl.sanitize_species(self.nucRxnString.split('(')[0])
         internals = self.nucRxnString.split('(')[1].split(')')[0].split(',')
         reactants, products = [rl.sanitize_species(spec) for spec in internals]
-        endState = self.nucRxnString.split(')')[1]
+        endState = rl.sanitize_species(self.nucRxnString.split(')')[1])
 
         # this is of the form a + b -> c + d, with special character handling
         rateString = rl.form_rate_string(target, reactants, products, endState)
@@ -130,91 +115,68 @@ class ReacLibReaction(Reaction):
 
         self.target = target
 
-    def _find_specific_reaction(self,pageContainingAllRatesForTarget):
+    def build_rxn_rate(self, xml_root):
         """
-        There is not a standard way reactions are written in the pages returned
-        from a search query; i.e. n + n + He4 -> He6 could also be written as
-        n + He4 + n -> He6 or He4 + n + n -> He6.
-        
-        This method searches for all the possible rates given some target
-        nucleus, and finds the correct rate by looking through all possible
-        permutations of reactants and products.  If there are multiple matches
-        (sometimes the case with weak rates), then the user is queried about
-        which one they prefer.
+        xml_root is the root node of the XML document containing all the
+        reaction rate information in the ReacLib database.
         """
-        reactantsPerms = set(itertools.permutations(self.reactants))
-        productsPerms = set(itertools.permutations(self.products))
-        allPerms = itertools.product(reactantsPerms,productsPerms)
+        # xpath_str = '//reaction[%s]'
+        # reactants = ['reactant="%s"' % reactant.lower()
+        #              for reactant in self.reactants]
+        # products = ['product="%s"' % product.lower()
+        #             for product in self.products]
+        # xpath_str = xpath_str % ' and '.join(reactants + products)
+        # search for reactions that have these specific reactants and products
+        possible_reactions = xml_root.xpath(_build_xpath(self.reactants,
+                                                         self.products))
+        # if possible_reactions is an empty list, then this might be
+        # a reverse rate, which isn't stored in the database.  need to
+        # construct the reverse rate, if possible
+        if not possible_reactions:
+            possible_reactions = xml_root.path(_build_xpath(self.products,
+                                                            self.reactants))
+            if not possible_reactions:
+                errStr = "%s\n or it's reverse not found in ReacLib database."
+                raise RuntimeError(errStr % str(self))
 
-        # loop over all the permutations and find a matching string
-        # we store the reaction rate URLs in totalMatches
-        totalMatches = []
-        for rperm,pperm in allPerms:
-            target = rperm[0]
-            reactants  = ''
-            if len(rperm) > 1: reactants = PLUS.join(rperm[1:])
-            products = ''
-            if len(pperm) > 1: products = PLUS.join(pperm[:-2])
-            endState = pperm[-1]
-            rstring = form_rate_string(target,reactants,products,endState)
+            # FIXME - implement this
+            _build_reverse()
 
-            matches = re.findall(rateFinderString % rstring.replace('+','\+'),
-                                 pageContainingAllRatesForTarget)
-            if matches: totalMatches += matches
+        # possible_reactions is NOT a list of reactions with ONLY these
+        # products and reactants, so we need to filter some out by making
+        # sure the NUMBER of products and reactants match, respectively
+        rxns_same_no_reactants = [rxn for rxn in possible_reactions if
+                                  int(rxn.xpath('count(.//reactant)')) ==
+                                  len(self.reactants)]
+        this_reaction = [rxn for rxn in rxns_same_no_reactants if
+                         int(rxn.xpath('count(.//product)')) ==
+                         len(self.products)]
+        if len(this_reaction) != 1:
+            errStr = "Found multiple reactions for \n%s\n" % str(self)
+            errStr += xpath_str
+            raise RuntimeError(errStr)
+        this_reaction = this_reaction[0]
+        # now read in the recommended fit parameters
+        aFactors = {}
+        for a_param in ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']:
+            aFactors[a_param] = [float(a_val.text) for a_val in
+                                 this_reaction.xpath('//%s' % a_param)]
 
-        if not totalMatches: 
-            print "Error, couldn't find reaction for %s" % self.nucRxnString
-            sys.exit()
+        self.rate = rl.build_rate_function(aFactors)
 
-        thisMatch = totalMatches[0]
 
-        # if there are multiple choices, then prompt the user for a preference
-        # this happens with weak decays that can be either beta+ or e capture
-        if len(totalMatches) > 1:
-            print "\nThere are multiple matches for the rxn you specified."
-            print "Note that this is likely the case for weak rates that can"
-            print "either beta^+ decay or electron capture."
-            print "\nWhich rate would you prefer?\n"
-            for i,m in enumerate(totalMatches):
-                print '%s) %s' % (i+1,m)
-            iselect = raw_input()
-            thisMatch = totalMatches[i-1]
-        
-        self.rateURL = thisMatch
+def _build_xpath(reactants, products):
+    # use XPath syntax to search for this specific rate based on
+    # the reactants and products
+    xpath_str = '//reaction[%s]'
+    reacts = ['reactant="%s"' % reactant.lower()
+              for reactant in reactants]
+    prods = ['product="%s"' % product.lower()
+             for product in products]
+    return xpath_str % ' and '.join(reacts + prods)
 
-    def _get_ID_filename(self):
-        """
-        Given a reaction rate URL, this function will parse the site for the 
-        reaction rate ID and the filename in the database.  This can then be
-        used to search for the exact rate file.
-        """
-        data = urllib.urlopen(self.rateURL).read()
-        matches = idAndFNFinder.findall(data)
-        if not matches:
-            print "Couldn't find ID and filename from %s" % URL
-        self.rateID, self.filename = matches[0]
-
-    def get_RL_file(self,pageContainingAllRatesForTarget):
-        """
-        Given an HTML page containing all the reactions associated with this
-        particular Reaction's target, find this particular reaction and 
-        download the ReacLib rate file containing the fitting parameters.
-        """
-        # get the rate URL for this particular Reaction
-        self._find_specific_reaction(pageContainingAllRatesForTarget)
-        # parse the rate URL for the ReacLib ID and filename
-        self._get_ID_filename()
-
-        # download and write it to a file
-        baseURL = ('https://groups.nscl.msu.edu/jina/reaclib/db/' +
-                   'difout.php?action=%s' +
-                   '&rateID=%s&filename=%s&no910=0')
-        fullURL = baseURL % (RL_format, self.rateID, self.filename)
-        req = urllib.urlopen(fullURL)
-        try:
-            fh = open(self.filename,'w')
-        except IOError:
-            print "Couldn't open %s for writing!" % self.filename
-            sys.exit()
-        fh.write(req.read())
-        fh.close()
+def _build_reverse():
+    """
+    Need to implement reverse rates here
+    """
+    pass

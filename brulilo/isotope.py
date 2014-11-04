@@ -3,6 +3,7 @@ An Isotope is a container holding a species mass, atomic number, etc.
 """
 import numpy as np
 from util.reaclib import get_Z_A, isotope_lut, Zdict
+from util.constants import MeV2erg
 
 isotope_registry = {}
 
@@ -24,17 +25,18 @@ class Isotope(object):
             return isotope_registry[registered_name]
         return super(Isotope, cls).__new__(cls, name, mass, **kwargs)
 
-    def __init__(self, name, mass=None, ebin=None):
+    def __init__(self, name, mass=None):
         """
         You can specify the name of the isotope (e.g. "He") and the mass
-        (e.g. 4) separately, or as a single string (e.g. "He4").
+        (e.g. 4) separately, or as a single string (e.g. "He4").  Nuclear
+        properties, like mass_excess, will be looked up in a nuclear data
+        file from ReacLib/webnucleo.
         """
         if mass is None:
             self.Z, self.A = get_Z_A(name)
         else:
             self.A = mass
             self.Z = Zdict[name.capitalize()]
-        self.B = ebin
         # special neutron case
         if self.Z == 0:
             self.symbol = 'n'
@@ -46,6 +48,17 @@ class Isotope(object):
         # probably a more meta way of doing this, but register this class
         isotope_registry[str(self)] = self
 
+    def update_mass_excess(self, xml_root):
+        """
+        xml_root is the root node of the XML document containing the nuclear
+        data information.  We just want to find this specific Isotope's Z & A
+        in the XML document so that we can get our mass excess.
+        """
+        # Use XPath syntax for searching within the XML document
+        xpath_str = '//nuclide[z=%d and a=%d]/mass_excess' % (self.Z, self.A)
+        this_element = xml_root.xpath(xpath_str)[0]
+        self.mass_excess = float(this_element.text) * MeV2erg
+
     def __hash__(self):
         # just so we can make a set...
         return isotope_registry.keys().index(str(self))
@@ -54,7 +67,10 @@ class Isotope(object):
         return cmp(hash(self), hash(other))
 
     def __str__(self):
-        return "%s%d" % (self.symbol, self.A)
+        my_str = self.symbol
+        if my_str != 'n':
+            my_str += str(self.A)
+        return my_str  #"%s%d" % (self.symbol, self.A)
 
     def _plot_build_label(self):
         """

@@ -1,28 +1,21 @@
 """
 This module provides an interface for acquiring reaction rates from the
-ReacLib[1] database.  It queries the database over HTTP, in a somewhat
-inefficient fashion.
+ReacLib[1] database.
 
 [1] https://groups.nscl.msu.edu/jina/reaclib/db/
 """
-import urllib
-import sys
 import re
-import itertools
 
-# ReacLib format 1 - this is all we support currently
-RL_format = 'cfreaclib'
+# these files store data about the rates and nuclei in the ReacLib database
+nuc_data_file = "data/webnucleo_nuc_v2.0.xml"
+rxn_data_file = "data/20141031default.webnucleo.xml"
 
 # some oft-used constants
 PLUS = " + "
 TO = " -> "
-MAX_PER_PAGE = 9999
 
-# these are used to parse HTML files and species names
+# this is used to parse species names
 specZAFinder = re.compile(r'(\D+)(\d+)')
-rateFinderString = '<td><a href="(.*)">%s'
-idAndFNFinder = re.compile(r"'&rateID=(\d+)&filename=(.*)'"
-                           r"\+ \(this.action.value=='xml'")
 
 # periodic table, somewhat broken up appropriately
 isotope_lut = ['H', 'He',
@@ -84,7 +77,7 @@ def sanitize_species(speciesString):
       'He4' is a bonafide isotope, so just return it
     """
     # ignore photons and empty strings
-    if speciesString.strip() == '' or speciesString == 'g':
+    if speciesString.strip() in ['', 'g']:
         return ''
     # if there are capitals in the string, then assume this is a bonafide
     # isotope
@@ -92,17 +85,30 @@ def sanitize_species(speciesString):
         return speciesString
     # now, if there are any 'g's left, set them to empty
     speciesString = speciesString.replace('g', '')
-    # if it is a single species left, correct alphas and return
-    if len(speciesString) is 1:
-        return speciesString.replace('a', 'He4')
-    else:
-        # multiple species
-        ret = []
-        for spec in speciesString:
-            ret.append(spec.replace('a', 'He4'))
-        ret = PLUS.join(ret)
-        return ret
+    # if it is a single species left, correct specials and return
+    if len(speciesString) == 1:
+        return _fix_special_species(speciesString)
 
+    # multiple species; correct specials
+    ret = []
+    for spec in speciesString:
+        ret.append(_fix_special_species(spec))
+    ret = PLUS.join(ret)
+    return ret
+
+def _fix_special_species(species_string):
+    """
+    Fix the cases of special characters; i.e. t --> H3, a --> He4, etc.
+    """
+    # don't do anything to n
+    if species_string == 'n':
+        return species_string
+
+    if species_string in specialCharZA:
+        Z, A = specialCharZA[species_string]
+        return "%s%d" % (isotope_lut[Z-1], A)
+
+    return species_string
 
 def form_rate_string(target, reactants='', products='', endState=''):
     """
@@ -123,23 +129,23 @@ def form_rate_string(target, reactants='', products='', endState=''):
     rstring = ''.join(rstring)
     return rstring
 
-
-def search_for_reactions_involving_target(Z, A):
+def build_rate_function(aFactors):
     """
-    This will call the ReacLib search functionality specifying the target
-    isotope as the (Z,A) isotope.  This should return a page with all such
-    reactions.
+    aFactors is a dictionary whose keys are the name of the fit parameters
+    (e.g. 'a1' or 'a5') and the values are lists of the fit parameter values,
+    one entry for each set in the ReacLib rate
     """
-    baseURL = 'https://groups.nscl.msu.edu/jina/reaclib/db/results.php'
-    data = {'lowz[]': str(Z), 'highz[]': str(Z),
-            'lowm[]': str(A), 'highm[]': str(A),
-            'perPage': MAX_PER_PAGE}
-    data = urllib.urlencode(data)
-    try:
-        req = urllib.urlopen(baseURL, data)
-    except IOError:
-        print ("Couldn't open %s with the following data \n %s" %
-               (baseURL, data))
-        sys.exit()
-
-    return req.read()
+    aFacs = np.array(zip(aFactors['a1'], aFactors['a2'], aFactors['a3'],
+                         aFactors['a4'], aFactors['a5'], aFactors['a6'],
+                         aFactors['a7']))
+    def _rate_function(temperature):
+        t9 = temperature / 1e9
+        t9i = 1./t9
+        tfactors = np.array([1.0,
+                             t9i, t9i**(1./3.),
+                             t9**(1./3.), t9, t9**(5./3.),
+                             np.log10(t9)], dtype='float64')
+        rate = np.exp(aFacs * tfactors)
+        return np.sum(rate)
+        
+    return _rate_function

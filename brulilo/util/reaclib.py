@@ -1,144 +1,151 @@
 """
 This module provides an interface for acquiring reaction rates from the
-ReacLib[1] database.
+ReacLib[1] database.  Currently, we only consider data in the XML format 
+described by Webnucleo[2].
 
 [1] https://groups.nscl.msu.edu/jina/reaclib/db/
+[2] http://nucleo.ces.clemson.edu/
 """
 import re
+import os.path
+import lxml.etree as etree
+import numpy as np
 
-# these files store data about the rates and nuclei in the ReacLib database
-nuc_data_file = "data/webnucleo_nuc_v2.0.xml"
-rxn_data_file = "data/20141031default.webnucleo.xml"
-
-# some oft-used constants
-PLUS = " + "
-TO = " -> "
-
-# this is used to parse species names
-specZAFinder = re.compile(r'(\D+)(\d+)')
-
-# periodic table, somewhat broken up appropriately
-isotope_lut = ['H', 'He',
-               'Li', 'Be',
-               'B', 'C', 'N', 'O', 'F', 'Ne',
-               'Na', 'Mg',
-               'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
-               'K', 'Ca',
-               'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co',  # break
-               'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr',
-               'Rb', 'Sr',
-               'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh',  # break
-               'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
-               'Cs', 'Ba',
-               # Lanthanide Series
-               'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu',  # break
-               'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu',
-               'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt',  # break
-               'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn',
-               'Fr', 'Ra',
-               # Actinide Series
-               'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am',  # break
-               'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
-               'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds',  # break
-               'Rg', 'Cn', 'Uut', 'Fl', 'Uup', 'Lv', 'Uus', 'Uuo']
-# this is useful for going from a species name to a Z value
-Zdict = {}
-for i, species in enumerate(isotope_lut):
-    Zdict[species] = i+1
-
-# ReacLib uses some common symbols for proton, deuteron, etc.
-specialCharZA = {'p': (1, 1),
-                 'd': (1, 2),
-                 't': (1, 3),
-                 'a': (2, 4),
-                 'n': (0, 1)}
+import brulilo
+from constants import MeV2erg
+from progressbar import IntProgressBar
 
 
-def get_Z_A(spec):
+
+
+
+
+
+
+def get_nuclear_data(network):
     """
-    Parses a species like 'He4' or 'a' to get the A and Z for searching.
+    Grab all the nuclear data for all Isotopes in the Network.
     """
-    foundList = re.findall(specZAFinder, spec)
-    # if it is empty, then we have some special chars
-    if not foundList:
-        return specialCharZA[spec]
-    else:
-        spec, A = foundList[0]
-        Z = Zdict[spec]
-    return Z, int(A)
+    fn = os.path.join(os.path.dirname(brulilo.__file__),
+                      nuc_data_file)
+    nuc_data_root = etree.parse(fn)
+    pbar = IntProgressBar("Getting nuclear data", len(network.isotopes))
+    for isotope in network.isotopes:
+        # find this element in the XML file based on its Z and A
+        xpath_str = "//nuclide[z=%d and a=%d]" % (isotope.Z, isotope.A)
+        this_element = nuc_data_root.xpath(xpath_str)
+        if len(this_element) != 1:
+            errStr = "Didn't find a single isotope for (%d,%d)\n" % (isotope.Z,
+                                                                     isotope.A)
+            errStr += "Found" + ' '.join(this_element)
+            raise RuntimeError(errStr)
+        this_element = this_element[0]
+        # get the mass excess
+        isotope.mass_excess = (float(this_element.find("mass_excess").text) *
+                               MeV2erg)
+        # we need the following for calculating reverse rates
+        # get the spin
+        isotope.spin = float(this_element.find("spin").text)
+        # get the partition table for interpolation
+        # this is going to be an array of t9, log10(f) entries
+        # -- see Webnucleo documentation for more info
+        partition_table = this_element.find("partf_table")
+        part_t9 = [float(t9.text) for t9 in partition_table.xpath("point/t9")]
+        part_lf = [float(lf.text) for lf in
+                   partition_table.xpath("point/log10_partf")]
+        isotope.partition_table = np.array(zip(part_t9, part_lf),
+                                           dtype='float64')
+        pbar.update(str(isotope))
+
+def get_rate_data(network):
+    """
+    Grab all the nuclear reaction data for all Reactions in the Network.
+    Here we also build the rate functions for each Reaction, including
+    the machinery for reverse rates.
+    """
+    fn = os.path.join(os.path.dirname(brulilo.__file__),
+                      rxn_data_file)
+    rxn_data_root = etree.parse(fn)
+    for reaction in network.reactions:
+        print reaction
+        # xpath = "//reaction[%s]"
+        # # first add the reactant nuclides + gammas
+        # xpath_specific = AND.join(["reactant='%s'" % reactant
+        #                            for reactant in reaction.reactants
+        #                            if reactant != "lepton"])
+        # # now the product nuclides + gammas
+        # xpath_specific += AND + AND.join(["product='%s'" % product
+        #                                   for product in reaction.products
+        #                                   if product != "lepton"])
+        # # 'lepton' indicates that it is something from leptons, so search all
+        # # reactants first
+        # if 'lepton' in reaction.reactants:
+        #     xpath_specific += AND + "(" + OR.join(["reactant='%s'" % lepton
+        #                                            for lepton in leptons]) + \
+        #                                                ")"
+        # if 'lepton' in reaction.products:
+        #     xpath_specific += AND + "(" + OR.join(["product='%s'" % lepton
+        #                                            for lepton in leptons]) + \
+        #                                                ")"
+        search_string = _build_rate_xpath_str(reaction.reactants,
+                                              reaction.products)
+        possible_reactions = rxn_data_root.xpath(search_string)
+        npossible = len(possible_reactions)
+        this_reaction = None
+        print search_string
+        # if we didn't find anything, this is possibly a reverse rate
+        reaction.is_reverse = False
+        if npossible == 0:
+            reaction.is_reverse = True
+            this_reaction = _try_to_grab_reverse(reaction, rxn_data_root)
+        elif npossible == 1:
+            this_reaction = possible_reactions[0]
+        # if we found two rates, then this is probably an ambiguous
+        # case that needs to check the qualifier
+        # TODO -- cleanup
+        elif npossible == 2:
+            this_reaction = _address_qualifier(possible_reactions)
+        else:
+            errStr = ("Found more than two reactions for: %s\n" %
+                      reaction.nucRxnString)
+            for rxn in possible_reactions:
+                errStr += "\n"
+                for child in rxn:
+                    errStr += "%s %s" % (str(child), child.text)
+            raise RuntimeError(errStr)
+        _build_rate_function(reaction, this_reaction)
 
 
-def sanitize_species(speciesString):
+def _build_rate_function(rxn, xml_rxn):
     """
-    Takes a 'species' from a reaction string and parses it properly.
-    e.g:
-      'nn' really means 'n + n', so that is what will be returned.
-      'g'  really means a photon, which is omitted
-      'He4' is a bonafide isotope, so just return it
+    Here we parse the XML reaction object to find either a single_rate tag,
+    a rate_table tag, or a non_smoker_fit.  We build the appropriate rate
+    function and add it to the Reaction object along with the reaction's 
+    Q-value.  Special handling is done for reverse rates, and Q-values are
+    modified based on if we are a beta+ rate or electron capture.
     """
-    # ignore photons and empty strings
-    if speciesString.strip() in ['', 'g']:
-        return ''
-    # if there are capitals in the string, then assume this is a bonafide
-    # isotope
-    if speciesString.lower() != speciesString:
-        return speciesString
-    # now, if there are any 'g's left, set them to empty
-    speciesString = speciesString.replace('g', '')
-    # if it is a single species left, correct specials and return
-    if len(speciesString) == 1:
-        return _fix_special_species(speciesString)
+    rate_builders = {"non_smoker_fit": _build_non_smoker_rate,
+                     "single_rate": _build_single_rate,
+                     "rate_table": _build_rate_table_rate}
+    print 'xml_rxn', xml_rxn
+    for rate_type, builder in rate_builders.iteritems():
+        this_rate = xml_rxn.xpath(rate_type)
+        if this_rate:
+            rxn.rate = builder(rxn, this_rate[0])
+            return
 
-    # multiple species; correct specials
-    ret = []
-    for spec in speciesString:
-        ret.append(_fix_special_species(spec))
-    ret = PLUS.join(ret)
-    return ret
-
-def _fix_special_species(species_string):
+def _build_non_smoker_rate(rxn, xml_rxn):
     """
-    Fix the cases of special characters; i.e. t --> H3, a --> He4, etc.
+    Read in the 'a' factors to the non-smoker fit and build the rate function.
+    TODO: This currently doesn't honor the lower and upper temperature bounds..
     """
-    # don't do anything to n
-    if species_string == 'n':
-        return species_string
-
-    if species_string in specialCharZA:
-        Z, A = specialCharZA[species_string]
-        return "%s%d" % (isotope_lut[Z-1], A)
-
-    return species_string
-
-def form_rate_string(target, reactants='', products='', endState=''):
-    """
-    Takes the various parts of a reaction and forms the stochiometric version,
-    i.e.
-      target + reactants -> endState + products
-    """
-    rstring = [target, ]
-    if reactants is not '':
-        rstring += [PLUS, reactants]
-    rstring.append(TO)
-    if endState is not '':
-        rstring.append(endState)
-    if products is not '':
-        rstring += [PLUS, products]
-
-    # this is of the form a + b -> c + d, with special character handling
-    rstring = ''.join(rstring)
-    return rstring
-
-def build_rate_function(aFactors):
-    """
-    aFactors is a dictionary whose keys are the name of the fit parameters
-    (e.g. 'a1' or 'a5') and the values are lists of the fit parameter values,
-    one entry for each set in the ReacLib rate
-    """
-    aFacs = np.array(zip(aFactors['a1'], aFactors['a2'], aFactors['a3'],
-                         aFactors['a4'], aFactors['a5'], aFactors['a6'],
-                         aFactors['a7']))
-    def _rate_function(temperature):
+    aList = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']
+    aFactors = {}
+    for a_param in aList:
+        aFactors[a_param] = [float(a_val.text) for a_val in
+                             xml_rxn.xpath('.//%s' % a_param)]
+    aFacs = np.array(zip(*[aFactors[a] for a in aList]))
+    def _rate_function(self, temperature, density):
         t9 = temperature / 1e9
         t9i = 1./t9
         tfactors = np.array([1.0,
@@ -146,6 +153,71 @@ def build_rate_function(aFactors):
                              t9**(1./3.), t9, t9**(5./3.),
                              np.log10(t9)], dtype='float64')
         rate = np.exp(aFacs * tfactors)
-        return np.sum(rate)
-        
+        rate = np.sum(rate)
+        if self.is_reverse:
+            rate *= self.reverse_factor(temperature, density)
+        return rate
     return _rate_function
+
+def _build_single_rate(rxn, xml_rxn):
+    """
+    Read in the single rate and build the function.  A function is overkill
+    in this case, but keeps the API consistent with the other formats.
+    """
+    single_rate = xml_rxn.xpath(".//single_rate")
+    if not single_rate:
+        errString = "Couldn't find the single_rate for %s" % str(rxn)
+        raise RuntimeError(errString)
+    single_rate = float(single_rate[0])
+    def _rate_function(self, temperature, density):
+        if self.is_reverse:
+            single_rate *= self.reverse_factor(temperature, density)
+        return single_rate
+    return _rate_function
+
+def _build_rate_table_rate(rxn, xml_rxn):
+    raise NotImplementedError
+
+
+def _build_rate_xpath_str(lhs, rhs):
+    """
+    this builds an XPath string for searching through the XML using the
+    lhs as the reactants and the rhs as the products
+    """
+    xpath = "//reaction[%s]"
+    # first add the reactant nuclides + gammas
+    xpath_specific = AND.join(["reactant='%s'" % reactant
+                               for reactant in lhs if reactant != "lepton"])
+    # now the product nuclides + gammas
+    xpath_specific += AND + AND.join(["product='%s'" % product
+                                      for product in rhs
+                                      if product != "lepton"])
+    # 'lepton' indicates that it is something from leptons, so search all
+    # reactants first
+    if 'lepton' in rhs:
+        xpath_specific += AND + "(" + OR.join(["reactant='%s'" % lepton
+                                               for lepton in leptons]) + \
+                                                   ")"
+    if 'lepton' in lhs:
+        xpath_specific += AND + "(" + OR.join(["product='%s'" % lepton
+                                               for lepton in leptons]) + \
+                                                   ")"
+
+    return xpath % xpath_specific.lower()
+    
+
+def _try_to_grab_reverse(rxn, xml_root):
+    # reverse the reactants and products
+    reverse_search_str = _build_rate_xpath_str(rxn.products, rxn.reactants)
+    reverse_reactions = xml_root.xpath(reverse_search_str)
+    if not reverse_reactions:
+        errString = "Could not find forward or reverse rate for: %s" % str(rxn)
+        raise RuntimeError(errString)
+    if len(reverse_reactions) > 1:
+        reverse_reaction = _address_qualifier(reverse_reactions)
+    else:
+        reverse_reaction = reverse_reactions[0]
+    return reverse_reaction
+
+def _address_qualifier(reactions):
+    pass

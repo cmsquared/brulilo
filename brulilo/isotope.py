@@ -2,8 +2,11 @@
 An Isotope is a container holding a species mass, atomic number, etc.
 """
 import numpy as np
-from util.reaclib import get_Z_A, isotope_lut, Zdict
+from scipy.interpolate import interp1d
+
+from util.species import get_Z_A, element_lut, Zdict
 from util.constants import MeV2erg
+from util.webnucleo import webnucleo
 
 isotope_registry = {}
 
@@ -14,63 +17,92 @@ class Isotope(object):
     _label_pad = 0.2
     _box_size = _width - 2*_label_pad
 
-    def __new__(cls, name, mass=None, **kwargs):
-        if mass is None:
-            Z, A = get_Z_A(name)
-        else:
-            A = mass
-            Z = Zdict[name.capitalize()]
-        registered_name = "%s%d" % (isotope_lut[Z-1], A)
-        if registered_name in isotope_registry:
-            return isotope_registry[registered_name]
-        return super(Isotope, cls).__new__(cls, name, mass, **kwargs)
+    def __new__(cls, name, **kwargs):
+        Z, A = get_Z_A(name)
+        if Z != 0:
+            registered_name = "%s%d" % (element_lut[Z], A)
+        else:  # neutron
+            registered_name = "n"
+        if registered_name not in isotope_registry:
+            this_isotope = super(Isotope, cls).__new__(cls, name, **kwargs)
+            isotope_registry[registered_name] = this_isotope
 
-    def __init__(self, name, mass=None):
+        return isotope_registry[registered_name]
+
+    def __init__(self, name, pbar=None):
         """
-        You can specify the name of the isotope (e.g. "He") and the mass
-        (e.g. 4) separately, or as a single string (e.g. "He4").  Nuclear
-        properties, like mass_excess, will be looked up in a nuclear data
-        file from ReacLib/webnucleo.
+        You specify the name of the isotope and the mass as a single string
+        (e.g. "He4").  Nuclear properties, like mass_excess, will be looked up
+        in a nuclear data file from ReacLib/Webnucleo.
+
+        pbar can be a progressbar instance, useful for ticking along for large
+        networks to show progress.
         """
-        if mass is None:
-            self.Z, self.A = get_Z_A(name)
-        else:
-            self.A = mass
-            self.Z = Zdict[name.capitalize()]
-        # special neutron case
-        if self.Z == 0:
-            self.symbol = 'n'
-        else:
-            self.symbol = isotope_lut[self.Z - 1]
+        self.Z, self.A = get_Z_A(name)
+        self.symbol = element_lut[self.Z]
         self._plot_nz = np.array([self.A-self.Z,
                                   self.Z], dtype='int')
 
-        # probably a more meta way of doing this, but register this class
-        isotope_registry[str(self)] = self
+        # look up the nuclear data and build the partition function
+        if pbar is not None:
+            pbar.update(str(self))
+        self._build_nuclear_data()
 
-    def update_mass_excess(self, xml_root):
-        """
-        xml_root is the root node of the XML document containing the nuclear
-        data information.  We just want to find this specific Isotope's Z & A
-        in the XML document so that we can get our mass excess.
-        """
-        # Use XPath syntax for searching within the XML document
-        xpath_str = '//nuclide[z=%d and a=%d]/mass_excess' % (self.Z, self.A)
-        this_element = xml_root.xpath(xpath_str)[0]
-        self.mass_excess = float(this_element.text) * MeV2erg
+    def _build_nuclear_data(self):
+        # find my entry in the Webnucleo data file
+        my_data = webnucleo.get_isotope_data(self)
+        # mass excess and spin
+        # TODO -- make this work with nuclides with different states like Al26
+        for attr in ["mass_excess", "spin"]:
+            setattr(self, attr, float(my_data.find(attr).text))
+        # binding energy
+        self.binding_energy = (self.Z*webnucleo.proton_mass_excess +
+                               (self.A-self.Z)*webnucleo.neutron_mass_excess -
+                               self.mass_excess)
+        # swap to cgs units
+        self.binding_energy *= MeV2erg
+        self.mass_excess *= MeV2erg
+        # get the partition table entry
+        ptable = my_data.find("partf_table")
+        if ptable is None:
+            # partition table data does not exist, so the partition function
+            # is just the number of states of the ground state
+            self.partition_function = lambda temperature: 2*self.spin + 1
+        else:
+            # now the actual data: (t9, log10(f)) pairs, where f is related
+            # to the partition function -- see Webnucleo documentation
+            part_t9 = map(float, [t9.text for t9 in ptable.xpath("point/t9")])
+            part_lf = map(float, [lf.text
+                                  for lf in ptable.xpath("point/log10_partf")])
+            self.partition_function = self._build_partition_function(part_t9,
+                                                                     part_lf)
+
+    def _build_partition_function(self, table_t9, table_logf):
+        fit = interp1d(table_t9, table_logf, kind='cubic')
+        minT9 = min(table_t9)
+        maxT9 = max(table_t9)
+
+        def _part_function(isotope, temperature):
+            t9 = temperature / 1e9
+            # no extrapolation
+            t9 = min(maxt9, max(mint9, t9))
+            return (2*self.spin + 1) * 10**fit(t9)
+
+        return _part_function
 
     def __hash__(self):
         # just so we can make a set...
         return isotope_registry.keys().index(str(self))
 
     def __cmp__(self, other):
+        # just so we can make a set...
         return cmp(hash(self), hash(other))
 
     def __str__(self):
         my_str = self.symbol
         if my_str != 'n':
             my_str += str(self.A)
-        return my_str  #"%s%d" % (self.symbol, self.A)
+        return my_str
 
     def _plot_build_label(self):
         """

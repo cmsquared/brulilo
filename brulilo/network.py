@@ -6,9 +6,10 @@ import types
 import lxml.etree as etree
 import os.path
 
-from reaction import ReacLibReaction
+from reaction import Reaction
 from isotope import Isotope
-from brulilo.util.reaclib import nuc_data_file, rxn_data_file, sanitize_species
+from util.progressbar import IntProgressBar
+# import brulilo.util.reaclib as rl
 import brulilo
 
 
@@ -16,14 +17,15 @@ class Network(object):
     def __init__(self, isotopes, reactions):
         self.isotopes = list(isotopes)
         self.reactions = list(reactions)
-        print 'in Network init', self.isotopes
 
         # if the isotopes are just the string names, as is the case
         # for from_rxn_file-generated networks, we need to do some
         # updating
         if isinstance(self.isotopes[0], types.StringTypes):
             self._update_with_Isotopes()
-            self._build_rxn_rates()
+            rl.get_nuclear_data(self)
+            rl.get_rate_data(self)
+#            self._build_rxn_rates()
 
         for rxn in self.reactions:
             rxn.update_rxn_vector(self.isotopes)
@@ -32,11 +34,20 @@ class Network(object):
     def from_rxn_file(cls, rxn_file):
         reactions = []
         with open(rxn_file, 'r') as f:
+            nrxns = sum(1 for line in f)
+        pbar = IntProgressBar('Building rxns and Isotopes', nrxns)
+        with open(rxn_file, 'r') as f:
             for rxn in f:
-                reactions.append(ReacLibReaction(rxn.strip()))
+                reactions.append(Reaction(rxn.strip(), pbar=pbar))
+        for reaction in reactions:
+            print str(reaction)
+            print reaction.isotopes
+            print reaction.reactants
+            print reaction.products
         isotopes = []
         for reaction in reactions:
             isotopes.extend(reaction.isotopes)
+
         isotopes = set(isotopes)
         return cls(isotopes, reactions)
 
@@ -50,15 +61,15 @@ class Network(object):
             real_isotopes.append(Isotope(isotope))
         # let's get each Isotope's mass_excess from the nuclear data file
         # this takes a bit
-        fn = os.path.join(os.path.dirname(brulilo.__file__), nuc_data_file)
-        nuc_data_root = etree.parse(fn)
-        for isotope in real_isotopes:
-            isotope.update_mass_excess(nuc_data_root)
+        # fn = os.path.join(os.path.dirname(brulilo.__file__), nuc_data_file)
+        # nuc_data_root = etree.parse(fn)
+        # for isotope in real_isotopes:
+        #     isotope.update_mass_excess(nuc_data_root)
         self.isotopes = real_isotopes
 
         net_isotopes = {str(isotope): isotope for isotope in self.isotopes}
         for reaction in self.reactions:
-            reaction.isotopes = [net_isotopes[sanitize_species(isotope)] for
+            reaction.isotopes = [net_isotopes[isotope] for
                                  isotope in reaction.isotopes]
 
     def _build_rxn_rates(self):

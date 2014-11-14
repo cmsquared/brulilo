@@ -10,4 +10,4 @@ He4(pp,He3)He3
 He4(aa,n)C11
 He4(npa,He3)Li7
 He4(ppa,He3)Be7
-p(p,)d
+p(p,e+nu_e)d

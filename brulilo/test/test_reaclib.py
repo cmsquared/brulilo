@@ -7,6 +7,6 @@ rxn_file = os.path.join(os.path.dirname(brulilo.__file__),
                         'test/testRxns.txt')
 
 net = Network.from_rxn_file(rxn_file)
-net.plot()
+#net.plot()
 
 net.pprint()

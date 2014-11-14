@@ -10,5 +10,7 @@ setup(name='brulilo',
       install_requires=[
           'numpy',
           'matplotlib',
+          'lxml',
+          'scipy',
       ],
       license='TBD')
